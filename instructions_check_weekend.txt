@@ -1,0 +1,23 @@
+Here’s a simple VBA subroutine that sets a Date variable to tomorrow if tomorrow is a weekday, otherwise to the following Monday.
+
+Public Sub SetNextBusinessDate()
+    Dim d As Date          'tomorrow
+    Dim nextBiz As Date    'result
+    
+    d = DateAdd("d", 1, Date)  'tomorrow
+    
+    Select Case Weekday(d, vbMonday)  'Mon=1 ... Sun=7
+        Case 6  'Saturday
+            nextBiz = DateAdd("d", 2, d)  'move to Monday
+        Case 7  'Sunday
+            nextBiz = DateAdd("d", 1, d)  'move to Monday
+        Case Else
+            nextBiz = d                   'already a weekday
+    End Select
+    
+    'Example: store/use it however you want
+    Debug.Print "Next date to use: "; Format$(nextBiz, "yyyy-mm-dd")
+End Sub
+
+
+If you want it as a reusable function instead (often nicer), tell me what variable name/type you want and I’ll format it that way.

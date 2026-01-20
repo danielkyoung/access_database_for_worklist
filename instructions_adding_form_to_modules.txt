@@ -1,0 +1,99 @@
+Add a “global” module (Standard Module) in Access
+
+A “global module” in Access is a Standard Module. Code in a standard module isn’t tied to any one form/report, and its Public procedures/functions can be called from anywhere (forms, reports, queries, macros, other modules).
+
+Steps (Access VBA editor):
+
+Open the VBA editor: Alt + F11
+
+In the Project pane, select your database project (e.g., VBAProject (YourDb.accdb))
+
+Go to Insert → Module
+
+A new module appears under Modules (e.g., Module1)
+
+In the Properties window (F4), rename it to something meaningful (e.g., modGlobals, modUtilities)
+
+Example:
+
+' In a standard module: modUtilities
+Public Function CleanText(ByVal s As Variant) As String
+    CleanText = Trim(Nz(s, ""))
+End Function
+
+Public Sub LogMessage(ByVal msg As String)
+    Debug.Print Now & " - " & msg
+End Sub
+
+
+Now you can call:
+
+From a form: Me.txtBox = CleanText(Me.txtBox)
+
+From a query expression: CleanText([SomeField]) (must be a Public Function)
+
+From anywhere in VBA: LogMessage "Hello"
+
+Add a module specific to a form (Form Module / Class Module)
+
+Each form already has its own module behind the form (a class module). This is where event procedures live: Form_Load, button click handlers, etc.
+
+To open a form’s module:
+
+In the Navigation Pane, right-click the form → Design View
+
+Click View Code (or press Alt + F11, then in the form design: View → Code)
+
+You’ll see code like:
+
+Private Sub cmdSave_Click()
+    ' Runs when user clicks the button on THIS form
+End Sub
+
+
+You can also add general helper routines there, but they are scoped like any other class module.
+
+How they differ (what matters in practice)
+1) Scope / accessibility
+
+Standard module (global):
+
+Public Function/Sub is callable from anywhere.
+
+Great for shared utilities, business rules, constants, generic routines.
+
+Form module (specific):
+
+Private members are usable only inside that form.
+
+Public members exist, but you must call them through an instance of the form (and the form may need to be open).
+
+Example:
+
+' In Form_frmOrders module
+Public Sub RecalcTotals()
+    ' ...
+End Sub
+
+
+Call from elsewhere:
+
+Forms!frmOrders.RecalcTotals   ' only works if frmOrders is open
+
+2) Object context (Me)
+
+Form module: Me refers to the current form instance (super convenient).
+
+Standard module: no Me (unless you pass a form reference in).
+
+3) Event handling
+
+Form module: natural home for events (Form_Load, control clicks, etc.).
+
+Standard module: no form events; you call into it from event procedures.
+
+4) Best-practice division of labor
+
+Put UI/event glue in the form module (responding to clicks, updating controls).
+
+Put reusable logic in standard modules (validation, calculations, DB helper functions).

@@ -1,0 +1,485 @@
+1) Required tables (Back-End)
+1.1 tblWork
+
+Stores each work item.
+
+Fields
+
+WorkID — AutoNumber, PK
+
+WorkDate — Date/Time (Scheduled work day)
+
+WorkName — Short Text(100)
+
+WorkDescription — Long Text
+
+Component — Short Text(50)
+
+WorkCenter — Short Text(50)
+
+DateAdded — Date/Time
+
+AddedBy — Short Text(255)
+
+IsComplete — Yes/No (Default False)
+
+CompletedAt — Date/Time (Null allowed)
+
+CompletedBy — Short Text(255) (Null allowed)
+
+IsCall — Yes/No (Default False) ✅ new field
+
+Recommended indexes
+
+Index: WorkDate
+
+Index: WorkDate, WorkCenter
+
+Index: IsComplete, WorkDate
+
+1.2 tblControl
+
+Single-row “state” table.
+
+Fields
+
+ControlID — Number, PK (always 1)
+
+TargetWorkDate — Date/Time (the date users are allowed to add work for)
+
+AddEnabled — Yes/No
+
+LastFinalizedAt — Date/Time (Null allowed)
+
+LastFinalizedBy — Short Text(255) (Null allowed)
+
+Initialize row
+
+ControlID = 1
+
+TargetWorkDate = Date()+1
+
+AddEnabled = True
+
+2) Required queries (Front-Ends)
+2.1 qryWork_ByDate (User FE)
+
+Shows work for a user-selected date (up to today).
+SQL
+
+SELECT *
+FROM tblWork
+WHERE WorkDate = DateValue(Forms!frmWorkList!txtViewDate)
+ORDER BY WorkCenter, Component, WorkName;
+
+
+This avoids parameter prompts by referencing the form control directly.
+
+2.2 qryWork_TargetDay_ForFinalize (Admin FE)
+
+Shows work for current TargetWorkDate so admin can mark IsCall.
+
+SQL
+
+SELECT w.*
+FROM tblWork AS w
+INNER JOIN tblControl AS c
+    ON c.ControlID = 1
+WHERE w.WorkDate = c.TargetWorkDate
+ORDER BY w.WorkCenter, w.Component, w.WorkName;
+
+2.3 qryWork_TargetDay_ForReport (Admin FE)
+
+Recordsource for report rptWork_TargetDay.
+
+SQL
+
+SELECT w.*
+FROM tblWork AS w
+INNER JOIN tblControl AS c
+    ON c.ControlID = 1
+WHERE w.WorkDate = c.TargetWorkDate
+ORDER BY w.WorkCenter, w.Component, w.WorkName;
+
+
+(Yes, it’s the same as finalize; you can reuse it.)
+
+3) Required modules (Front-Ends)
+
+Create a standard module (in each FE) named:
+
+3.1 modControl
+
+Paste this once per FE (User FE + Admin FE):
+
+Option Compare Database
+Option Explicit
+
+Public Function GetWindowsUser() As String
+    GetWindowsUser = Environ$("Username")
+End Function
+
+Public Function GetTargetWorkDate() As Date
+    GetTargetWorkDate = Nz(DLookup("TargetWorkDate", "tblControl", "ControlID=1"), Date() + 1)
+End Function
+
+Public Function CanAddWork() As Boolean
+    CanAddWork = (Nz(DLookup("AddEnabled", "tblControl", "ControlID=1"), False) = True)
+End Function
+
+Public Sub NormalizeTargetDate()
+    ' Ensure TargetWorkDate is always at least tomorrow
+    Dim d As Date
+    d = GetTargetWorkDate()
+
+    If d < Date() + 1 Then
+        CurrentDb.Execute "UPDATE tblControl SET TargetWorkDate = Date()+1 WHERE ControlID=1;", dbFailOnError
+    End If
+End Sub
+
+' ---- Admin-only helpers below (safe to keep in Admin FE only if you prefer) ----
+
+Public Sub SetAddEnabled(ByVal enabled As Boolean)
+    CurrentDb.Execute _
+        "UPDATE tblControl SET AddEnabled=" & IIf(enabled, "True", "False") & " WHERE ControlID=1;", _
+        dbFailOnError
+End Sub
+
+Public Sub AdvanceTargetDateAndEnable()
+    NormalizeTargetDate
+    CurrentDb.Execute _
+        "UPDATE tblControl SET TargetWorkDate = DateAdd('d',1,TargetWorkDate), AddEnabled=True WHERE ControlID=1;", _
+        dbFailOnError
+End Sub
+
+Public Sub FinalizeTargetDay()
+    ' Lock additions before finalizing
+    SetAddEnabled False
+
+    ' Save IsCall edits if finalize form is open
+    On Error Resume Next
+    If CurrentProject.AllForms("frmFinalizeTargetDay").IsLoaded Then
+        If Forms!frmFinalizeTargetDay.Dirty Then Forms!frmFinalizeTargetDay.Dirty = False
+    End If
+    On Error GoTo 0
+
+    ' Audit trail
+    CurrentDb.Execute _
+        "UPDATE tblControl SET LastFinalizedAt=Now(), LastFinalizedBy='" & Replace(GetWindowsUser(), "'", "''") & "' WHERE ControlID=1;", _
+        dbFailOnError
+
+    ' Export PDF
+    Dim outPath As String
+    outPath = "\\Server\DeptShare\WorkDB\DailyLists\WorkList_" & Format(GetTargetWorkDate(), "yyyy-mm-dd") & ".pdf"
+
+    DoCmd.OpenReport "rptWork_TargetDay", acViewPreview
+    DoCmd.OutputTo acOutputReport, "rptWork_TargetDay", acFormatPDF, outPath, True
+    DoCmd.Close acReport, "rptWork_TargetDay"
+End Sub
+
+
+If you prefer cleaner separation: keep SetAddEnabled, AdvanceTargetDateAndEnable, FinalizeTargetDay only in the Admin FE.
+
+4) Required forms (User FE)
+4.1 frmAddWork (User adds work for TargetWorkDate)
+Record Source
+
+tblWork (bound form)
+
+Form properties
+
+Default View: Single Form
+
+Allow Additions: Yes
+
+Data Entry: Yes
+
+Allow Edits: Yes (fine, it’s new rows only)
+
+Allow Deletions: No (optional)
+
+Controls (suggested)
+
+Bound controls:
+
+WorkName
+
+WorkDescription
+
+Component
+
+WorkCenter
+
+Unbound display controls (new):
+
+txtTargetDate (textbox)
+
+Control Source: (blank)
+
+Locked = Yes, Enabled = No
+
+lblTargetRelative (label) optional
+
+VBA (form module)
+Option Compare Database
+Option Explicit
+
+Private Sub Form_Open(Cancel As Integer)
+    If Not CanAddWork() Then
+        MsgBox "Adding work is currently disabled.", vbExclamation
+        Cancel = True
+        Exit Sub
+    End If
+
+    UpdateTargetDateDisplay
+End Sub
+
+Private Sub Form_Current()
+    UpdateTargetDateDisplay
+End Sub
+
+Private Sub UpdateTargetDateDisplay()
+    Dim d As Date
+    d = GetTargetWorkDate()
+
+    Me!txtTargetDate = d
+
+    If d = Date() + 1 Then
+        Me!lblTargetRelative.Caption = "(Tomorrow)"
+    ElseIf d = Date() + 2 Then
+        Me!lblTargetRelative.Caption = "(Day after tomorrow)"
+    ElseIf d > Date() Then
+        Me!lblTargetRelative.Caption = "(" & DateDiff("d", Date(), d) & " days from today)"
+    Else
+        Me!lblTargetRelative.Caption = "(Target date)"
+    End If
+End Sub
+
+Private Sub Form_BeforeInsert(Cancel As Integer)
+    ' Force scheduled day and audit fields
+    Me!WorkDate = GetTargetWorkDate()
+    Me!DateAdded = Now()
+    Me!AddedBy = GetWindowsUser()
+
+    ' Defaults
+    Me!IsComplete = False
+    Me!IsCall = False
+End Sub
+
+4.2 frmWorkList (Users view work for a selected date up to today and mark complete)
+Record Source
+
+qryWork_ByDate
+
+Form properties
+
+Default View: Continuous Forms
+
+Allow Additions: No
+
+Allow Deletions: No
+
+Allow Edits: Yes (needed for completion checkbox)
+
+Controls
+
+Unbound filter controls (header area):
+
+txtViewDate (textbox)
+
+Default Value: =Date()
+
+Format: Short Date
+
+cmdLoadDate (button) caption “Load”
+
+Bound controls in detail section:
+
+Display fields: WorkName, WorkDescription, Component, WorkCenter, etc.
+
+Set Locked = True for all display textboxes
+
+Checkbox bound to IsComplete (name it chkComplete)
+
+(Optional) show IsCall locked (so users can see it if you want)
+
+VBA (form module)
+Option Compare Database
+Option Explicit
+
+Private Sub Form_Load()
+    Me!txtViewDate = Date()
+    LoadWorkForSelectedDate
+End Sub
+
+Private Sub cmdLoadDate_Click()
+    LoadWorkForSelectedDate
+End Sub
+
+Private Sub txtViewDate_AfterUpdate()
+    LoadWorkForSelectedDate
+End Sub
+
+Private Sub LoadWorkForSelectedDate()
+    If IsNull(Me!txtViewDate) Then
+        MsgBox "Please select a date.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim d As Date
+    d = DateValue(Me!txtViewDate)
+
+    If d > Date() Then
+        MsgBox "You can only view work up to today.", vbExclamation
+        Me!txtViewDate = Date()
+    End If
+
+    Me.Requery
+End Sub
+
+Private Sub chkComplete_AfterUpdate()
+    If Me!IsComplete = True Then
+        Me!CompletedAt = Now()
+        Me!CompletedBy = GetWindowsUser()
+    Else
+        Me!CompletedAt = Null
+        Me!CompletedBy = Null
+    End If
+End Sub
+
+Private Sub Form_BeforeUpdate(Cancel As Integer)
+    ' Hard block edits to protected fields
+    If Nz(Me!WorkName, "") <> Nz(Me!WorkName.OldValue, "") _
+    Or Nz(Me!WorkDescription, "") <> Nz(Me!WorkDescription.OldValue, "") _
+    Or Nz(Me!Component, "") <> Nz(Me!Component.OldValue, "") _
+    Or Nz(Me!WorkCenter, "") <> Nz(Me!WorkCenter.OldValue, "") _
+    Or Me!WorkDate <> Me!WorkDate.OldValue _
+    Or Nz(Me!IsCall, False) <> Nz(Me!IsCall.OldValue, False) Then
+
+        MsgBox "You can only mark work complete. Editing other fields is not allowed.", vbExclamation
+        Cancel = True
+        Me.Undo
+    End If
+End Sub
+
+5) Required forms (Admin FE)
+5.1 frmAdminControl (Admin main control panel)
+Controls (buttons + status)
+
+Button cmdDisableAdd caption “Disable Adding”
+
+Button cmdOpenFinalize caption “Open Finalize Screen”
+
+Button cmdFinalizeExport caption “Finalize + Export PDF”
+
+Button cmdEnableAdvance caption “Enable Adding (Advance Date)”
+
+Unbound status textboxes/labels:
+
+txtTargetDateAdmin (show TargetWorkDate)
+
+txtAddEnabledAdmin (show AddEnabled)
+
+VBA (form module)
+Option Compare Database
+Option Explicit
+
+Private Sub Form_Load()
+    RefreshStatus
+End Sub
+
+Private Sub cmdDisableAdd_Click()
+    SetAddEnabled False
+    RefreshStatus
+End Sub
+
+Private Sub cmdOpenFinalize_Click()
+    DoCmd.OpenForm "frmFinalizeTargetDay", acNormal
+End Sub
+
+Private Sub cmdFinalizeExport_Click()
+    FinalizeTargetDay
+    RefreshStatus
+End Sub
+
+Private Sub cmdEnableAdvance_Click()
+    AdvanceTargetDateAndEnable
+    RefreshStatus
+End Sub
+
+Private Sub RefreshStatus()
+    Me!txtTargetDateAdmin = GetTargetWorkDate()
+    Me!txtAddEnabledAdmin = IIf(CanAddWork(), "ENABLED", "DISABLED")
+End Sub
+
+5.2 frmFinalizeTargetDay (Admin marks IsCall before export)
+Record Source
+
+qryWork_TargetDay_ForFinalize
+
+Form properties
+
+Default View: Continuous Forms
+
+Allow Additions: No
+
+Allow Deletions: No
+
+Allow Edits: Yes
+
+Controls
+
+Display: WorkName, Component, WorkCenter, etc.
+
+Checkbox bound to IsCall (caption “Call”)
+
+Optionally add a label at top: “Finalizing for: [TargetWorkDate]”
+
+Use an unbound textbox txtFinalizeDate (Locked/Disabled)
+
+VBA (form module)
+Option Compare Database
+Option Explicit
+
+Private Sub Form_Load()
+    Me!txtFinalizeDate = GetTargetWorkDate()
+End Sub
+
+
+(You don’t need more than this; edits are saved when the form is closed or when Finalize routine forces a save.)
+
+6) Required report (Admin FE)
+6.1 rptWork_TargetDay
+Record Source
+
+qryWork_TargetDay_ForReport (or reuse qryWork_TargetDay_ForFinalize)
+
+Layout notes
+
+Include IsCall as a column (e.g., “CALL”)
+
+Group by WorkCenter (optional)
+
+Sort by WorkCenter, Component, WorkName
+
+No VBA required unless you want custom formatting.
+
+7) Workflow (how it runs)
+
+User
+
+Opens User FE
+
+Uses frmAddWork to add items (system assigns WorkDate = TargetWorkDate)
+
+Uses frmWorkList to pick a date (≤ today) and mark complete
+
+Admin
+
+Disables adding in frmAdminControl
+
+Opens frmFinalizeTargetDay and checks IsCall for the target day’s items
+
+Clicks “Finalize + Export PDF” (creates the PDF list for target date)
+
+Clicks “Enable Adding (Advance Date)” so users now add for the next day

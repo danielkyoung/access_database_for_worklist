@@ -1,0 +1,134 @@
+Here’s the mental model + the exact clicks to do each thing in Access.
+
+1) Set a form’s Record Source (where the data comes from)
+
+What it is: The query/table/SQL that supplies records to the form.
+
+How:
+
+Open the form in Design View (right-click form in Navigation Pane → Design View).
+
+If the Property Sheet isn’t open: Design tab → Property Sheet.
+
+Make sure you’re viewing Form properties:
+
+Click the small square in the top-left corner of the form design grid (where rulers meet), or pick Form in the Property Sheet dropdown.
+
+Property Sheet → Data tab → Record Source
+
+Choose a table/query, or click the … button to open the Query Builder.
+
+You can also type SQL directly (Record Source can be an SQL statement).
+
+Tip: If you want a form that only shows one record (like an edit screen), use Default View = Single Form (Format tab).
+
+2) Set properties (form-level and control-level)
+
+Access properties are always “for whatever is currently selected.”
+
+Form properties
+
+Select the form itself (the top-left selector square).
+
+Property Sheet tabs you’ll use a lot:
+
+Format: Default View, Header/Footer, Scroll Bars, Record Selectors, Navigation Buttons
+
+Data: Record Source, Allow Edits/Additions/Deletions, Data Entry, Filter
+
+Event: On Load, On Current, Before Update, On Click, etc.
+
+Other: Name, Recordset Type, Cycle
+
+Control properties
+
+Click the control (textbox, combo box, button, etc.).
+
+Property Sheet tabs:
+
+Data: Control Source (binding), Row Source (for combos), Default Value, Validation Rule/Text
+
+Format: Visible, Enabled, Locked, Format, Conditional Formatting
+
+Event: On Click, After Update, On Enter, etc.
+
+Other: Name (important), Tab Stop, Tab Index
+
+Common gotcha:
+
+Locked = True means you can’t edit it
+
+Enabled = False greys it out and prevents focus
+Often you want Enabled=True, Locked=True for “read-only but not greyed out.”
+
+3) Add bound controls (connected to a field)
+
+What it is: A control whose value comes from (and can write back to) a field in the form’s Record Source.
+
+Fastest way (recommended)
+
+Ensure the form has a Record Source.
+
+Design tab → Add Existing Fields
+
+Drag a field onto the form.
+
+Access creates a textbox + label.
+
+The textbox is bound automatically.
+
+Manual way
+
+Design tab → Controls → choose Text Box and draw it.
+
+Click the textbox → Property Sheet → Data tab → Control Source
+
+Set Control Source to a field name like WorkName (or choose from dropdown).
+
+Bound controls examples: Textbox, combo box, checkbox, etc., as long as Control Source points to a field.
+
+4) Add unbound controls (not stored in a field)
+
+Use these when: You want UI helpers, filters, calculations, buttons, headings, etc.
+
+Unbound textbox (manual input not saved to table)
+
+Add a textbox.
+
+Leave Control Source blank.
+
+Give it a useful Name (Other tab) like txtSearch.
+
+Calculated control (still “unbound” in the sense it’s not a stored field)
+
+Add a textbox.
+
+Set Control Source to an expression, e.g.:
+
+=[Qty]*[UnitPrice]
+
+=Nz([FieldA],0)+Nz([FieldB],0)
+
+Usually set Locked = True so users can’t type over the calculation.
+
+Unbound combo box for filtering
+
+Add combo box (use the wizard if you want).
+
+Set Row Source (a query/list of choices).
+
+Leave Control Source blank.
+
+Use it in code/macros to filter the form.
+
+Quick “how do I tell if it’s bound?”
+
+Click the control → Property Sheet → Data tab:
+
+Control Source = FieldName → bound
+
+Control Source = (blank) → unbound
+
+Control Source = =expression → calculated (not stored unless you write it back with code)
+
+If you tell me what kind of form you’re building (data entry single-form, continuous list, or search/filter form), I’ll suggest the best set of form properties (Allow Additions, Data Entry, Cycle, navigation buttons, etc.) and the cleanest pattern for bound/unbound controls.
